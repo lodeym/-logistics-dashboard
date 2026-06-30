@@ -1,0 +1,1049 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>피킹 생산성 대시보드</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+:root {
+  --bg:       #06080F;
+  --surf:     #0C1220;
+  --surf2:    #111928;
+  --border:   #1A2540;
+  --cyan:     #00D4E8;
+  --green:    #0FD97A;
+  --yellow:   #F7B731;
+  --red:      #FF4757;
+  --purple:   #9B7CFF;
+  --text:     #DDE8F8;
+  --muted:    #5A7196;
+  --dim:      #1E2D45;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  min-height: 100vh;
+  padding: 18px 20px;
+}
+
+/* ── HEADER ── */
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+.header-title {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+  color: #EEF4FF;
+}
+.header-sub {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 3px;
+}
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.date-chip {
+  background: var(--surf2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--cyan);
+}
+.config-btn {
+  background: rgba(0,212,232,0.08);
+  border: 1px solid rgba(0,212,232,0.25);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 11px;
+  color: var(--cyan);
+  cursor: pointer;
+  transition: background .2s;
+}
+.config-btn:hover { background: rgba(0,212,232,0.15); }
+
+/* ── CONFIG PANEL ── */
+.config-panel {
+  display: none;
+  background: var(--surf);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 16px;
+  font-size: 12px;
+}
+.config-panel.open { display: block; }
+.config-panel label { color: var(--muted); display: block; margin-bottom: 4px; font-size: 11px; }
+.config-panel input {
+  width: 100%;
+  background: var(--surf2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 12px;
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  margin-bottom: 10px;
+}
+.config-panel input:focus { outline: 1px solid var(--cyan); }
+.config-row { display: flex; gap: 8px; }
+.btn-reload {
+  background: var(--cyan);
+  color: #000;
+  border: none;
+  border-radius: 6px;
+  padding: 7px 16px;
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+}
+.data-source-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--muted);
+  margin-bottom: 14px;
+}
+.source-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--yellow);
+}
+.source-dot.live { background: var(--green); animation: pulse 2s infinite; }
+@keyframes pulse {
+  0%,100% { opacity: 1; }
+  50% { opacity: .4; }
+}
+
+/* ── KPI CARDS ── */
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.kpi {
+  background: var(--surf);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  position: relative;
+  overflow: hidden;
+}
+.kpi::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--c, var(--cyan));
+}
+.kpi-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.kpi-val {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--c, var(--text));
+}
+.kpi-unit {
+  display: inline-block;
+  font-size: 13px;
+  font-weight: 500;
+  margin-left: 2px;
+  color: var(--muted);
+  vertical-align: bottom;
+  margin-bottom: 2px;
+}
+.kpi-note {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+.kpi-note b { color: var(--text); }
+
+/* 진척율 카드: 반원 게이지 */
+.gauge-wrap {
+  position: relative;
+  width: 90px;
+  height: 50px;
+  margin: 0 auto 4px;
+}
+.gauge-wrap canvas { position: absolute; top: 0; left: 0; }
+.gauge-center {
+  position: absolute;
+  bottom: -2px;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+}
+.gauge-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--green);
+  line-height: 1;
+}
+.gauge-label {
+  font-size: 9px;
+  color: var(--muted);
+}
+
+/* ── CHART GRID ── */
+.grid2 {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.g-6-4 { grid-template-columns: 3fr 2fr; }
+.g-5-5 { grid-template-columns: 1fr 1fr; }
+
+.card {
+  background: var(--surf);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px;
+}
+.card-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+.card-sub {
+  font-size: 10px;
+  color: var(--muted);
+  margin-bottom: 14px;
+}
+
+/* ── WORKER TABLE ── */
+.wtable-wrap {
+  overflow-x: auto;
+  max-height: 380px;
+  overflow-y: auto;
+}
+.wtable-wrap::-webkit-scrollbar { width: 4px; height: 4px; }
+.wtable-wrap::-webkit-scrollbar-track { background: transparent; }
+.wtable-wrap::-webkit-scrollbar-thumb { background: var(--dim); border-radius: 2px; }
+
+table { width: 100%; border-collapse: collapse; }
+thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surf);
+  text-align: left;
+  padding: 6px 10px;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  z-index: 1;
+}
+tbody td {
+  padding: 6px 10px;
+  border-bottom: 1px solid rgba(26,37,64,0.5);
+  font-size: 11px;
+  white-space: nowrap;
+}
+tbody tr:hover td { background: var(--surf2); }
+.mono { font-family: 'JetBrains Mono', monospace; }
+
+.badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 600;
+}
+.b-reg  { background: rgba(0,212,232,.12); color: var(--cyan); }
+.b-temp { background: rgba(247,183,49,.12); color: var(--yellow); }
+
+.f1 { color: #60A5FA; }
+.f2 { color: #34D399; }
+.f3 { color: #A78BFA; }
+.f4 { color: #FB923C; }
+.fcs{ color: var(--muted); }
+
+.uph-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.uph-bar-bg {
+  flex: 1;
+  height: 4px;
+  background: var(--dim);
+  border-radius: 2px;
+  overflow: hidden;
+  min-width: 40px;
+}
+.uph-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+}
+.uph-good  { background: var(--green); }
+.uph-ok    { background: var(--cyan); }
+.uph-low   { background: var(--yellow); }
+.uph-poor  { background: var(--red); }
+
+/* rank pill */
+.rank-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  font-size: 9px;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+}
+.rank-1 { background: #F7B731; color: #000; }
+.rank-2 { background: #9CA3AF; color: #000; }
+.rank-3 { background: #B97B4A; color: #fff; }
+.rank-n { background: var(--dim); color: var(--muted); }
+
+
+/* ── FLOOR PANEL ── */
+.floor-panel {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.floor-card {
+  background: var(--surf);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--fc, var(--cyan));
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.floor-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fc, var(--cyan));
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+.floor-count {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+.floor-unit { font-size: 13px; font-weight: 500; color: var(--muted); margin-left: 2px; }
+.floor-bar-bg {
+  height: 3px;
+  background: var(--dim);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+.floor-bar-fill { height: 100%; border-radius: 2px; transition: width .4s ease; }
+.floor-meta { font-size: 10px; color: var(--muted); }
+
+/* ── RESPONSIVE ── */
+@media (max-width: 1100px) {
+  .kpi-row { grid-template-columns: repeat(3,1fr); }
+  .g-6-4, .g-5-5 { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+  .kpi-row { grid-template-columns: 1fr 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <div>
+    <div class="header-title">📦 피킹 생산성 대시보드</div>
+    <div class="header-sub">신성통상 · 작업 성과 실시간 모니터링</div>
+  </div>
+  <div class="header-right">
+    <div class="date-chip" id="dateChip">2026-06-30</div>
+    <button class="config-btn" onclick="toggleConfig()">⚙ 데이터 연결</button>
+  </div>
+</div>
+
+<!-- CONFIG PANEL -->
+<div class="config-panel" id="configPanel">
+  <label>rawdata(wms) 시트 — Google Sheets 웹게시 CSV URL</label>
+  <input type="text" id="wmsUrl" placeholder="https://docs.google.com/spreadsheets/d/.../pub?output=csv&gid=XXXXXX">
+  <label>rawdata(ID) 시트 — Google Sheets 웹게시 CSV URL (선택)</label>
+  <input type="text" id="idUrl" placeholder="https://docs.google.com/spreadsheets/d/.../pub?output=csv&gid=XXXXXX">
+  <div class="config-row">
+    <button class="btn-reload" onclick="loadFromSheets()">실시간 데이터 불러오기</button>
+  </div>
+</div>
+
+<div class="data-source-badge">
+  <span class="source-dot" id="sourceDot"></span>
+  <span id="sourceLabel">임베드 데이터 사용 중 — Google Sheets URL을 연결하면 실시간 갱신됩니다</span>
+</div>
+
+<!-- KPI ROW -->
+<div class="kpi-row">
+  <div class="kpi" style="--c:var(--cyan)">
+    <div class="kpi-label">피킹 지시</div>
+    <div class="kpi-val">8,191<span class="kpi-unit">pcs</span></div>
+    <div class="kpi-note">오늘 전체 지시수량</div>
+  </div>
+  <div class="kpi" style="--c:var(--green)">
+    <div class="kpi-label">완료 수량</div>
+    <div class="kpi-val" id="kpiDone">7,940<span class="kpi-unit">pcs</span></div>
+    <div class="kpi-note" id="kpiDoneNote">9시 4,527 · 10시 3,413</div>
+  </div>
+  <div class="kpi" style="--c:var(--green); text-align:center">
+    <div class="kpi-label">진 척 율</div>
+    <div class="gauge-wrap">
+      <canvas id="gaugeCanvas" width="90" height="50"></canvas>
+      <div class="gauge-center">
+        <div class="gauge-num" id="gaugeNum">96.9%</div>
+      </div>
+    </div>
+    <div class="kpi-note" style="text-align:center">목표 <b>100%</b></div>
+  </div>
+  <div class="kpi" style="--c:var(--purple)">
+    <div class="kpi-label">평균 UPH</div>
+    <div class="kpi-val" style="color:var(--purple)" id="kpiUph">116.2</div>
+    <div class="kpi-note">목표 <b>100</b> · 달성률 <b id="uphRate">116%</b></div>
+  </div>
+  <div class="kpi" style="--c:var(--yellow)">
+    <div class="kpi-label">투입 인원</div>
+    <div class="kpi-val" style="color:var(--yellow)" id="kpiWorkers">38<span class="kpi-unit">명</span></div>
+    <div class="kpi-note">정규직 · 일용직 혼합</div>
+  </div>
+</div>
+
+<!-- 현재작업구역 인원 패널 -->
+<div class="floor-panel" id="floorPanel"></div>
+
+<!-- ROW 1: 시간대별 + 층별 -->
+<div class="grid2 g-6-4">
+  <div class="card">
+    <div class="card-title">시간대별 처리량 & UPH</div>
+    <div class="card-sub">시간대별 피킹 완료수량(막대) · UPH(라인)</div>
+    <canvas id="hourlyChart" height="130"></canvas>
+  </div>
+  <div class="card">
+    <div class="card-title">층별 처리량 비교</div>
+    <div class="card-sub">층별 총 처리수량 · 투입인원 대비</div>
+    <canvas id="floorChart" height="130"></canvas>
+  </div>
+</div>
+
+<!-- ROW 2: 작업자 랭킹 + 브랜드 + 전략코드 -->
+<div class="grid2 g-6-4">
+  <div class="card">
+    <div class="card-title">작업자 성과 랭킹 (TOP 15)</div>
+    <div class="card-sub">개인별 총 처리수량 내림차순</div>
+    <canvas id="workerChart" height="220"></canvas>
+  </div>
+  <div class="card">
+    <div class="card-title">브랜드별 처리량 TOP10</div>
+    <div class="card-sub">브랜드코드 기준</div>
+    <canvas id="brandChart" height="220"></canvas>
+  </div>
+</div>
+
+<!-- 작업자 상세 테이블 -->
+<div class="card">
+  <div class="card-title">작업자 상세 성과</div>
+  <div class="card-sub">전체 작업자 · UPH 기준 정렬 (목표: 100)</div>
+  <div class="wtable-wrap">
+    <table>
+      <thead id="workerTableHead">
+        <!-- 헤더: buildWorkerTable()이 동적 생성 -->
+      </thead>
+      <tbody id="workerTableBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+// ────────────────────────────────
+// EMBEDDED DATA
+// ────────────────────────────────
+const EMBEDDED = {
+  kpi: {directed:8191,done:7940,progress:96.9,avg_uph:116.2,target_uph:100,workers:38,date:"2026-06-30"},
+  hourly:[
+    {hour:"9시",qty:4527,workers:36,uph:125.75},
+    {hour:"10시",qty:3413,workers:33,uph:103.4}
+  ],
+  floors:[
+    {floor:"1층",h9:478,h10:392,total:870,workers:4,uph_9:119.5,uph_10:98.0},
+    {floor:"2층",h9:1853,h10:1449,total:3302,workers:28,uph_9:66.2,uph_10:51.8},
+    {floor:"3층",h9:1445,h10:1056,total:2501,workers:11,uph_9:131.4,uph_10:96.0},
+    {floor:"4층",h9:744,h10:516,total:1260,workers:10,uph_9:74.4,uph_10:51.6},
+    {floor:"CS처리",h9:7,h10:0,total:7,workers:1,uph_9:7.0,uph_10:0.0}
+  ],
+  workers:[{"id":"ON152","name":"김민주","type":"일용직","floor":"2층","hours":{"9":{"qty":193,"cells":63},"10":{"qty":144,"cells":54}},"total":337,"totalCells":93,"uph":168.5},{"id":"ON040","name":"태은선","type":"정규직","floor":"1층","hours":{"9":{"qty":189,"cells":146},"10":{"qty":144,"cells":109}},"total":333,"totalCells":226,"uph":166.5},{"id":"ON113","name":"조경희","type":"일용직","floor":"3층","hours":{"9":{"qty":200,"cells":104},"10":{"qty":133,"cells":92}},"total":333,"totalCells":160,"uph":166.5},{"id":"ON122","name":"서연제","type":"일용직","floor":"2층","hours":{"9":{"qty":216,"cells":79},"10":{"qty":117,"cells":82}},"total":333,"totalCells":138,"uph":166.5},{"id":"ON048","name":"린신페","type":"정규직","floor":"2층","hours":{"9":{"qty":208,"cells":80},"10":{"qty":122,"cells":60}},"total":330,"totalCells":121,"uph":165.0},{"id":"ON160","name":"최윤선","type":"일용직","floor":"2층","hours":{"9":{"qty":187,"cells":81},"10":{"qty":131,"cells":75}},"total":318,"totalCells":125,"uph":159.0},{"id":"ON123","name":"박선영","type":"일용직","floor":"2층","hours":{"9":{"qty":190,"cells":61},"10":{"qty":118,"cells":52}},"total":308,"totalCells":87,"uph":154.0},{"id":"ON039","name":"김혁주","type":"정규직","floor":"1층","hours":{"9":{"qty":150,"cells":116},"10":{"qty":137,"cells":109}},"total":287,"totalCells":202,"uph":143.5},{"id":"ON043","name":"이미순","type":"정규직","floor":"2층","hours":{"9":{"qty":151,"cells":84},"10":{"qty":132,"cells":85}},"total":283,"totalCells":148,"uph":141.5},{"id":"ON044","name":"오현정","type":"정규직","floor":"2층","hours":{"9":{"qty":162,"cells":95},"10":{"qty":114,"cells":71}},"total":276,"totalCells":146,"uph":138.0},{"id":"ON036","name":"유정희","type":"정규직","floor":"3층","hours":{"9":{"qty":164,"cells":91},"10":{"qty":112,"cells":72}},"total":276,"totalCells":153,"uph":138.0},{"id":"ON102","name":"박미야","type":"일용직","floor":"2층","hours":{"9":{"qty":158,"cells":84},"10":{"qty":114,"cells":77}},"total":272,"totalCells":129,"uph":136.0},{"id":"ON140","name":"전용찬","type":"일용직","floor":"2층","hours":{"9":{"qty":153,"cells":93},"10":{"qty":115,"cells":69}},"total":268,"totalCells":139,"uph":134.0},{"id":"ON135","name":"유민정","type":"일용직","floor":"2층","hours":{"9":{"qty":135,"cells":84},"10":{"qty":125,"cells":63}},"total":260,"totalCells":120,"uph":130.0},{"id":"ON046","name":"전성병","type":"정규직","floor":"2층","hours":{"9":{"qty":141,"cells":72},"10":{"qty":116,"cells":61}},"total":257,"totalCells":102,"uph":128.5},{"id":"ON103","name":"박진선","type":"일용직","floor":"2층","hours":{"9":{"qty":151,"cells":86},"10":{"qty":92,"cells":59}},"total":243,"totalCells":116,"uph":121.5},{"id":"ON045","name":"이채리","type":"정규직","floor":"2층","hours":{"9":{"qty":131,"cells":78},"10":{"qty":107,"cells":74}},"total":238,"totalCells":134,"uph":119.0},{"id":"ON034","name":"윤경희","type":"정규직","floor":"2층","hours":{"9":{"qty":122,"cells":58},"10":{"qty":113,"cells":59}},"total":235,"totalCells":106,"uph":117.5},{"id":"ON155","name":"조현심","type":"일용직","floor":"2층","hours":{"9":{"qty":123,"cells":103},"10":{"qty":111,"cells":68}},"total":234,"totalCells":171,"uph":117.0},{"id":"ON134","name":"김연희","type":"일용직","floor":"2층","hours":{"9":{"qty":139,"cells":90},"10":{"qty":84,"cells":61}},"total":223,"totalCells":130,"uph":111.5},{"id":"ON061","name":"김종훈","type":"정규직","floor":"1층","hours":{"9":{"qty":118,"cells":92},"10":{"qty":102,"cells":84}},"total":220,"totalCells":165,"uph":110.0},{"id":"ON053","name":"최희정","type":"정규직","floor":"2층","hours":{"9":{"qty":149,"cells":106},"10":{"qty":71,"cells":55}},"total":220,"totalCells":145,"uph":110.0},{"id":"ON139","name":"김호성","type":"일용직","floor":"2층","hours":{"9":{"qty":125,"cells":81},"10":{"qty":85,"cells":58}},"total":210,"totalCells":121,"uph":105.0},{"id":"ON142","name":"김지은","type":"일용직","floor":"2층","hours":{"9":{"qty":128,"cells":80},"10":{"qty":80,"cells":59}},"total":208,"totalCells":123,"uph":104.0},{"id":"ON049","name":"임기민","type":"정규직","floor":"2층","hours":{"9":{"qty":92,"cells":63},"10":{"qty":110,"cells":61}},"total":202,"totalCells":118,"uph":101.0},{"id":"ON124","name":"오윤희","type":"일용직","floor":"2층","hours":{"9":{"qty":123,"cells":73},"10":{"qty":73,"cells":53}},"total":196,"totalCells":103,"uph":98.0},{"id":"ON028","name":"송찬종","type":"일용직","floor":"2층","hours":{"9":{"qty":111,"cells":80},"10":{"qty":80,"cells":43}},"total":191,"totalCells":109,"uph":95.5},{"id":"ON054","name":"진병수","type":"정규직","floor":"2층","hours":{"9":{"qty":105,"cells":83},"10":{"qty":72,"cells":60}},"total":177,"totalCells":135,"uph":88.5},{"id":"ON153","name":"이명숙","type":"일용직","floor":"2층","hours":{"9":{"qty":83,"cells":27},"10":{"qty":81,"cells":36}},"total":164,"totalCells":48,"uph":82.0},{"id":"ON137","name":"마민혁","type":"일용직","floor":"2층","hours":{"9":{"qty":65,"cells":43},"10":{"qty":64,"cells":44}},"total":129,"totalCells":77,"uph":64.5},{"id":"ON047","name":"신미애","type":"정규직","floor":"3층","hours":{"9":{"qty":19,"cells":17},"10":{"qty":95,"cells":60}},"total":114,"totalCells":75,"uph":57.0},{"id":"ON037","name":"최춘송","type":"정규직","floor":"4층","hours":{"9":{"qty":19,"cells":14},"10":{"qty":94,"cells":55}},"total":113,"totalCells":68,"uph":56.5},{"id":"ON062","name":"김기남","type":"정규직","floor":"2층","hours":{"9":{"qty":34,"cells":30},"10":{"qty":10,"cells":9}},"total":44,"totalCells":39,"uph":22.0},{"id":"ON158","name":"이정수","type":"일용직","floor":"2층","hours":{"9":{"qty":35,"cells":31},"10":{"qty":4,"cells":4}},"total":39,"totalCells":35,"uph":19.5},{"id":"ON057","name":"윤지수","type":"정규직","floor":"1층","hours":{"9":{"qty":28,"cells":21},"10":{"qty":9,"cells":7}},"total":37,"totalCells":28,"uph":18.5},{"id":"ON033","name":"백상은","type":"정규직","floor":"3층","hours":{"9":{"qty":27,"cells":25},"10":{"qty":0,"cells":0}},"total":27,"totalCells":25,"uph":13.5},{"id":"ON050","name":"박민재","type":"정규직","floor":"4층","hours":{"9":{"qty":3,"cells":2},"10":{"qty":0,"cells":0}},"total":3,"totalCells":2,"uph":1.5},{"id":"ON055","name":"김현순","type":"정규직","floor":"2층","hours":{"9":{"qty":0,"cells":0},"10":{"qty":2,"cells":2}},"total":2,"totalCells":2,"uph":1.0}],
+  brands:[
+    {brand:"MS",qty:4132},{brand:"MB",qty:1330},{brand:"MK",qty:1128},
+    {brand:"AE",qty:326},{brand:"ZB",qty:166},{brand:"BL",qty:156},
+    {brand:"AB",qty:127},{brand:"ZA",qty:119},{brand:"ZO",qty:112},{brand:"BZ",qty:107}
+  ]
+};
+
+// ────────────────────────────────
+// STATE
+// ────────────────────────────────
+let DATA = EMBEDDED;
+let charts = {};
+
+// ────────────────────────────────
+// GAUGE CANVAS
+// ────────────────────────────────
+function drawGauge(pct) {
+  const c = document.getElementById('gaugeCanvas');
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0,0,90,50);
+  const cx=45, cy=48, r=36, lw=6;
+  // bg arc
+  ctx.beginPath();
+  ctx.arc(cx,cy,r, Math.PI, 2*Math.PI);
+  ctx.strokeStyle='#1A2540';
+  ctx.lineWidth=lw;
+  ctx.lineCap='round';
+  ctx.stroke();
+  // fill arc
+  const angle = Math.PI + (pct/100)*Math.PI;
+  const grad = ctx.createLinearGradient(9,48,81,48);
+  grad.addColorStop(0,'#0FD97A');
+  grad.addColorStop(1,'#00D4E8');
+  ctx.beginPath();
+  ctx.arc(cx,cy,r, Math.PI, angle);
+  ctx.strokeStyle=grad;
+  ctx.stroke();
+  document.getElementById('gaugeNum').textContent = pct.toFixed(1)+'%';
+}
+
+// ────────────────────────────────
+// RENDER
+// ────────────────────────────────
+function render(d) {
+  DATA = d;
+  document.getElementById('dateChip').textContent = d.kpi.date;
+  document.getElementById('kpiDone').innerHTML = Number(d.kpi.done).toLocaleString()+'<span class="kpi-unit">pcs</span>';
+  document.getElementById('kpiUph').textContent = d.kpi.avg_uph;
+  document.getElementById('uphRate').textContent = Math.round(d.kpi.avg_uph/d.kpi.target_uph*100)+'%';
+  document.getElementById('kpiWorkers').innerHTML = d.kpi.workers+'<span class="kpi-unit">명</span>';
+  drawGauge(d.kpi.progress);
+
+  const h9 = d.hourly[0], h10 = d.hourly[1];
+  const activeHrs = Object.keys(d.workers[0]?.hours||{}).sort((a,b)=>+a-+b);
+  const hNote = activeHrs.map(h=>`${h}시 ${(d.hourly.find(x=>x.hour===h+'시')||{}).qty?.toLocaleString()||0}`).join(' · ');
+  document.getElementById('kpiDoneNote').textContent = hNote;
+
+  buildHourlyChart(d.hourly);
+  buildFloorChart(d.floors);
+  buildWorkerChart(d.workers.slice(0,15));
+  buildBrandChart(d.brands);
+  buildFloorPanel(d.workers);
+  buildWorkerTable(d.workers);
+}
+
+// Chart helper
+function mkChart(id, cfg) {
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart(document.getElementById(id), cfg);
+}
+
+const CYAN='#00D4E8', GREEN='#0FD97A', YELLOW='#F7B731', RED='#FF4757', PURPLE='#9B7CFF';
+const FLOOR_COLORS = {'1층':'#60A5FA','2층':'#34D399','3층':'#A78BFA','4층':'#FB923C','CS처리':'#6B7280'};
+const gridColor = 'rgba(26,37,64,0.8)';
+
+function baseOpts(legend=false) {
+  return {
+    responsive:true,
+    plugins:{
+      legend:{ display:legend, labels:{ color:'#5A7196', font:{size:10} } },
+      tooltip:{ backgroundColor:'#0C1220', borderColor:'#1A2540', borderWidth:1,
+        titleColor:'#DDE8F8', bodyColor:'#5A7196', padding:10 }
+    }
+  };
+}
+
+// 시간대별 복합
+function buildFloorPanel(workers) {
+  const floorOrder = ['1층','2층','3층','4층','CS 처리'];
+  const floorColors = {'1층':'#60A5FA','2층':'#34D399','3층':'#A78BFA','4층':'#FB923C','CS 처리':'#6B7280'};
+  const panel = document.getElementById('floorPanel');
+  const byFloor = {};
+  workers.forEach(w => {
+    if (!w.floor) return;
+    if (!byFloor[w.floor]) byFloor[w.floor] = {workers:[], total:0};
+    byFloor[w.floor].workers.push(w);
+    byFloor[w.floor].total += w.total;
+  });
+  const total_workers = workers.filter(w=>w.floor).length;
+  panel.innerHTML = floorOrder.filter(f=>byFloor[f]).map(f => {
+    const info = byFloor[f];
+    const cnt  = info.workers.length;
+    const pct  = Math.round(cnt/total_workers*100);
+    const uph  = cnt ? Math.round(info.total / cnt / 2) : 0;
+    const col  = floorColors[f] || '#6B7280';
+    return `<div class="floor-card" style="--fc:${col}">
+      <div class="floor-name">${f}</div>
+      <div class="floor-count">${cnt}<span class="floor-unit">명</span></div>
+      <div class="floor-bar-bg"><div class="floor-bar-fill" style="width:${pct}%;background:${col}"></div></div>
+      <div class="floor-meta">${info.total.toLocaleString()}pcs · UPH ${uph}</div>
+    </div>`;
+  }).join('');
+}
+
+function buildHourlyChart(hourly) {
+  mkChart('hourlyChart', {
+    type:'bar',
+    data:{
+      labels: hourly.map(h=>h.hour),
+      datasets:[
+        {
+          label:'처리수량',
+          data: hourly.map(h=>h.qty),
+          backgroundColor: [CYAN+'44', GREEN+'44'],
+          borderColor: [CYAN, GREEN],
+          borderWidth:2,
+          borderRadius:6,
+          yAxisID:'y'
+        },
+        {
+          label:'UPH',
+          data: hourly.map(h=>h.uph),
+          type:'line',
+          borderColor:YELLOW,
+          backgroundColor:YELLOW+'22',
+          pointBackgroundColor:YELLOW,
+          pointRadius:5,
+          tension:0.3,
+          yAxisID:'y2'
+        }
+      ]
+    },
+    options:{
+      ...baseOpts(true),
+      scales:{
+        x:{ grid:{color:gridColor}, ticks:{color:'#5A7196'} },
+        y:{ grid:{color:gridColor}, ticks:{color:'#5A7196'}, title:{display:true,text:'수량(pcs)',color:'#5A7196',font:{size:10}} },
+        y2:{ position:'right', grid:{display:false}, ticks:{color:YELLOW}, title:{display:true,text:'UPH',color:YELLOW,font:{size:10}} }
+      }
+    }
+  });
+}
+
+// 층별 가로 막대
+function buildFloorChart(floors) {
+  const f = floors.filter(x=>x.floor!=='CS처리');
+  mkChart('floorChart', {
+    type:'bar',
+    data:{
+      labels: f.map(x=>x.floor),
+      datasets:[
+        { label:'9시', data:f.map(x=>x.h9), backgroundColor:CYAN+'66', borderColor:CYAN, borderWidth:1, borderRadius:4, stack:'s' },
+        { label:'10시', data:f.map(x=>x.h10), backgroundColor:GREEN+'66', borderColor:GREEN, borderWidth:1, borderRadius:4, stack:'s' }
+      ]
+    },
+    options:{
+      ...baseOpts(true),
+      indexAxis:'y',
+      scales:{
+        x:{ grid:{color:gridColor}, ticks:{color:'#5A7196'}, stacked:true },
+        y:{ grid:{display:false}, ticks:{color:'#DDE8F8', font:{size:12}}, stacked:true }
+      }
+    }
+  });
+}
+
+// 작업자 랭킹
+function buildWorkerChart(workers) {
+  const colors = workers.map(w => w.uph>=150?GREEN:w.uph>=100?CYAN:w.uph>=70?YELLOW:RED);
+  mkChart('workerChart', {
+    type:'bar',
+    data:{
+      labels: workers.map(w=>w.name),
+      datasets:[{
+        label:'합계수량',
+        data: workers.map(w=>w.total),
+        backgroundColor: colors.map(c=>c+'55'),
+        borderColor: colors,
+        borderWidth:1,
+        borderRadius:4
+      }]
+    },
+    options:{
+      ...baseOpts(),
+      indexAxis:'y',
+      plugins:{
+        ...baseOpts().plugins,
+        annotation:{
+          annotations:{
+            target:{
+              type:'line', scaleID:'x', value:200,
+              borderColor:YELLOW+'88', borderWidth:1, borderDash:[4,4]
+            }
+          }
+        }
+      },
+      scales:{
+        x:{ grid:{color:gridColor}, ticks:{color:'#5A7196'} },
+        y:{ grid:{display:false}, ticks:{color:'#DDE8F8', font:{size:10}} }
+      }
+    }
+  });
+}
+
+// 브랜드 도넛
+function buildBrandChart(brands) {
+  const sorted = [...brands].sort((a,b) => b.qty - a.qty);
+  const max = sorted[0]?.qty || 1;
+  const colors = sorted.map(b => {
+    const pct = b.qty / max;
+    if (pct > 0.7) return CYAN;
+    if (pct > 0.3) return GREEN;
+    return PURPLE;
+  });
+  mkChart('brandChart', {
+    type: 'bar',
+    data: {
+      labels: sorted.map(b => b.brand),
+      datasets: [{
+        label: '처리수량',
+        data: sorted.map(b => b.qty),
+        backgroundColor: colors.map(c => c + '55'),
+        borderColor: colors,
+        borderWidth: 1,
+        borderRadius: 4
+      }]
+    },
+    options: {
+      ...baseOpts(false),
+      indexAxis: 'y',
+      scales: {
+        x: {
+          grid: { color: gridColor },
+          ticks: { color: '#5A7196', font: { size: 10 } },
+          title: { display: true, text: 'pcs', color: '#5A7196', font: { size: 10 } }
+        },
+        y: {
+          grid: { display: false },
+          ticks: { color: '#DDE8F8', font: { size: 11, weight: '600' } }
+        }
+      },
+      plugins: {
+        ...baseOpts(false).plugins,
+        tooltip: {
+          ...baseOpts(false).plugins.tooltip,
+          callbacks: {
+            label: ctx => ` ${ctx.parsed.x.toLocaleString()} pcs`
+          }
+        }
+      }
+    }
+  });
+}
+
+// 작업자 테이블 (시간대 동적)
+function buildWorkerTable(workers) {
+  const tbody  = document.getElementById('workerTableBody');
+  const thead  = document.getElementById('workerTableHead');
+  const floorClass = {'1층':'f1','2층':'f2','3층':'f3','4층':'f4','CS 처리':'fcs'};
+  const uphClass = u => u>=150?'uph-good':u>=100?'uph-ok':u>=70?'uph-low':'uph-poor';
+  const uphPct   = u => Math.min(u/200*100,100).toFixed(0);
+  const status   = u => {
+    if(u>=150) return `<span style="color:var(--green);font-weight:600">★ 우수</span>`;
+    if(u>=100) return `<span style="color:var(--cyan)">✓ 달성</span>`;
+    if(u>=70)  return `<span style="color:var(--yellow)">△ 미달</span>`;
+    return `<span style="color:var(--red)">✗ 저조</span>`;
+  };
+  const rankPill = i => {
+    const cls = i===0?'rank-1':i===1?'rank-2':i===2?'rank-3':'rank-n';
+    return `<span class="rank-pill ${cls}">${i+1}</span>`;
+  };
+
+  // 시간대 목록 동적 추출
+  const hrs = [...new Set(workers.flatMap(w=>Object.keys(w.hours||{})))].sort((a,b)=>+a-+b);
+
+  // 헤더 동적 생성
+  thead.innerHTML = `<tr>
+    <th>순위</th><th>ID</th><th>이름</th><th>구분</th><th>현재작업구역</th>
+    ${hrs.map(h=>`<th>${h}시 <span style="color:var(--muted);font-size:9px">(셀)</span></th>`).join('')}
+    <th>합계</th><th>총셀</th><th style="min-width:120px">UPH (목표 100)</th><th>상태</th>
+  </tr>`;
+
+  tbody.innerHTML = workers.map((w,i)=>{
+    const hrCells = hrs.map(h => {
+      const hd = w.hours?.[h] || {qty:0,cells:0};
+      return `<td class="mono">${hd.qty>0 ? `${hd.qty.toLocaleString()} <span style="color:var(--muted);font-size:10px">(${hd.cells})</span>` : '<span style="color:var(--dim)">-</span>'}</td>`;
+    }).join('');
+    return `<tr>
+      <td>${rankPill(i)}</td>
+      <td class="mono" style="color:var(--muted)">${w.id}</td>
+      <td style="font-weight:600">${w.name}</td>
+      <td><span class="badge ${w.type==='정규직'?'b-reg':'b-temp'}">${w.type||'-'}</span></td>
+      <td class="mono ${floorClass[w.floor]||'fcs'}">${w.floor||'-'}</td>
+      ${hrCells}
+      <td class="mono" style="font-weight:700">${w.total.toLocaleString()}</td>
+      <td class="mono" style="color:var(--cyan)">${(w.totalCells||0)}</td>
+      <td><div class="uph-cell">
+        <div class="uph-bar-bg"><div class="uph-bar-fill ${uphClass(w.uph)}" style="width:${uphPct(w.uph)}%"></div></div>
+        <span class="mono" style="min-width:36px;text-align:right;font-size:10px">${w.uph}</span>
+      </div></td>
+      <td>${status(w.uph)}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ────────────────────────────────
+// CONFIG TOGGLE
+// ────────────────────────────────
+function toggleConfig() {
+  document.getElementById('configPanel').classList.toggle('open');
+}
+
+// ────────────────────────────────
+// GOOGLE SHEETS LOADER
+// ────────────────────────────────
+
+// rawdata(ID) 파싱 → {ON028: {name:'송찬종', type:'일용직'}, ...}
+function parseIdMap(rows) {
+  const map = {};
+  rows.forEach(r => {
+    const id = (r['ID'] || r['아이디'] || '').trim();
+    const name = (r['이름'] || r['성명'] || '').trim();
+    const type = (r['구분'] || '').trim();
+    if (id && id.startsWith('ON') && name) {
+      map[id] = { name, type };
+    }
+  });
+  return map;
+}
+
+// rawdata(wms) 집계 (idMap 적용)
+function processWms(rows, idMap) {
+  const workers = {}, floors = {};
+  const hourly = {9:{qty:0,count:new Set()}, 10:{qty:0,count:new Set()}};
+  const brands = {};
+  let totalDone = 0;
+
+  rows.forEach(r => {
+    const qty   = parseFloat(r['작업수량']) || 0;
+    const wid   = r['작업자']?.trim();
+    const floor = r['작업구역']?.trim();
+    const hr    = parseInt(r['시간대별']);
+    const brand = r['브랜드코드']?.trim();
+    const cell  = r['셀']?.trim();
+    const ts    = r['작업일시']?.trim() || '';
+
+    totalDone += qty;
+
+    if (wid) {
+      if (!workers[wid]) {
+        const info = idMap[wid] || {};
+        workers[wid] = {
+          id: wid, name: info.name || wid, type: info.type || '',
+          floor: '', lastTs: '', hours: {}, totalCells: new Set(), total: 0
+        };
+      }
+      const hrKey = String(hr);
+      if (!workers[wid].hours[hrKey]) workers[wid].hours[hrKey] = {qty:0, cells:new Set()};
+      workers[wid].hours[hrKey].qty += qty;
+      if (cell) workers[wid].hours[hrKey].cells.add(cell);
+      workers[wid].total += qty;
+      if (cell) workers[wid].totalCells.add(cell);
+
+      // 마지막 타임스탬프 기준 현재작업구역
+      if (floor && ts >= workers[wid].lastTs) {
+        workers[wid].floor  = floor;
+        workers[wid].lastTs = ts;
+      }
+    }
+
+    if (floor) {
+      if (!floors[floor]) floors[floor] = {floor, h9:0, h10:0, total:0, workers:new Set()};
+      if (hr === 9)  floors[floor].h9  += qty;
+      if (hr === 10) floors[floor].h10 += qty;
+      floors[floor].total += qty;
+      if (wid) floors[floor].workers.add(wid);
+    }
+
+    if (hr === 9 || hr === 10) {
+      hourly[hr].qty += qty;
+      if (wid) hourly[hr].count.add(wid);
+    }
+
+    if (brand) brands[brand] = (brands[brand] || 0) + qty;
+  });
+
+  // 작업자별 정리: Set → 숫자, hours cells Set → 숫자, UPH 계산
+  const activeHrCount = Object.keys(Object.values(workers)[0]?.hours||{'9':1,'10':1}).length || 2;
+  const workerList = Object.values(workers).map(w => {
+    const hoursClean = {};
+    Object.entries(w.hours).forEach(([h,v]) => {
+      hoursClean[h] = {qty: v.qty, cells: v.cells instanceof Set ? v.cells.size : v.cells};
+    });
+    return {
+      ...w,
+      hours: hoursClean,
+      totalCells: w.totalCells instanceof Set ? w.totalCells.size : w.totalCells,
+      uph: Math.round(w.total / Math.max(activeHrCount, 1) * 10) / 10
+    };
+  }).sort((a, b) => b.total - a.total);
+
+  const floorOrder = ['1층','2층','3층','4층','CS 처리'];
+  const floorList = floorOrder.map(f => {
+    const x = floors[f];
+    if (!x) return null;
+    const wc = x.workers.size || 1;
+    return { floor:f, h9:x.h9, h10:x.h10, total:x.total, workers:wc,
+      uph_9: Math.round(x.h9/wc*10)/10, uph_10: Math.round(x.h10/wc*10)/10 };
+  }).filter(Boolean);
+
+  const hourlyList = [9, 10].map(hr => ({
+    hour: hr+'시',
+    qty: hourly[hr].qty,
+    workers: hourly[hr].count.size,
+    uph: Math.round(hourly[hr].qty / Math.max(hourly[hr].count.size, 1) * 10) / 10
+  }));
+
+  const brandList = Object.entries(brands)
+    .sort((a,b) => b[1]-a[1]).slice(0,10)
+    .map(([brand,qty]) => ({brand, qty}));
+
+  const raw0 = rows[0]?.['작업일자']?.toString() || '';
+  const date = raw0.length === 8
+    ? `${raw0.slice(0,4)}-${raw0.slice(4,6)}-${raw0.slice(6,8)}`
+    : DATA.kpi.date;
+
+  const active = workerList.filter(w => w.total > 0);
+  const avgUph = Math.round(active.reduce((s,w) => s+w.uph, 0) / active.length * 10) / 10;
+
+  return {
+    kpi: {
+      directed: DATA.kpi.directed,
+      done: totalDone,
+      progress: Math.round(totalDone / DATA.kpi.directed * 1000) / 10,
+      avg_uph: avgUph,
+      target_uph: 100,
+      workers: active.length,
+      date
+    },
+    hourly: hourlyList,
+    floors: floorList,
+    workers: workerList,
+    brands: brandList
+  };
+}
+
+function setStatus(msg, live=false) {
+  document.getElementById('sourceDot').className = 'source-dot' + (live?' live':'');
+  document.getElementById('sourceLabel').textContent = msg;
+}
+
+function loadFromSheets() {
+  const wmsUrl = document.getElementById('wmsUrl').value.trim();
+  const idUrl  = document.getElementById('idUrl').value.trim();
+
+  if (!wmsUrl) { alert('rawdata(wms) URL을 입력해주세요.'); return; }
+
+  setStatus('데이터 불러오는 중...');
+
+  // Step 1: rawdata(ID) 파싱 (URL 있을 때만)
+  function fetchWms(idMap) {
+    setStatus(idUrl ? `ID 매핑 완료 (${Object.keys(idMap).length}명) — WMS 데이터 로드 중...` : 'WMS 데이터 로드 중...');
+
+    Papa.parse(wmsUrl, {
+      download: true, header: true, skipEmptyLines: true,
+      complete: function(res) {
+        try {
+          const rows = res.data;
+          if (!rows.length) throw new Error('WMS 데이터가 비어 있습니다');
+          const newData = processWms(rows, idMap);
+          render(newData);
+          setStatus(`실시간 연결됨 · WMS ${rows.length.toLocaleString()}행 · ID매핑 ${Object.keys(idMap).length}명`, true);
+          document.getElementById('configPanel').classList.remove('open');
+        } catch(e) {
+          setStatus('WMS 처리 오류: ' + e.message);
+        }
+      },
+      error: function(err) {
+        setStatus('WMS CSV 로드 실패 — URL과 시트 공개 설정 확인: ' + err.message);
+      }
+    });
+  }
+
+  if (idUrl) {
+    Papa.parse(idUrl, {
+      download: true, header: true, skipEmptyLines: true,
+      complete: function(res) {
+        try {
+          const idMap = parseIdMap(res.data);
+          if (!Object.keys(idMap).length) throw new Error('ID 매핑 데이터 없음 — 시트 구조나 URL 확인');
+          fetchWms(idMap);
+        } catch(e) {
+          setStatus('ID 시트 파싱 오류: ' + e.message + ' — WMS만으로 진행합니다');
+          fetchWms({});  // ID 매핑 없이 WMS만 처리
+        }
+      },
+      error: function() {
+        setStatus('ID CSV 로드 실패 — WMS만으로 진행합니다');
+        fetchWms({});
+      }
+    });
+  } else {
+    fetchWms({});  // ID URL 없으면 WMS만
+  }
+}
+
+// ────────────────────────────────
+// CONFIG — Google Sheets URLs
+// ────────────────────────────────
+const BASE = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRpKsuiXRCoJX1S4Bf-CPCi6MLIX57YNfhfciAVdGwNv85iLdPZkyEOHV5_ywlQzRzm_vTav_ghv2k2/pub?output=csv';
+const SHEETS_CONFIG = {
+  wms: BASE + '&gid=1545271702',
+  id:  BASE + '&gid=2086572094'
+};
+
+// ────────────────────────────────
+// INIT
+// ────────────────────────────────
+render(EMBEDDED);  // 임베드 데이터로 즉시 렌더링
+
+// 입력창에 URL 자동 채우기
+document.getElementById('wmsUrl').value = SHEETS_CONFIG.wms;
+document.getElementById('idUrl').value  = SHEETS_CONFIG.id;
+
+// 페이지 로드 후 자동으로 실시간 데이터 불러오기
+window.addEventListener('load', () => {
+  setStatus('Google Sheets 자동 연결 중...');
+  setTimeout(loadFromSheets, 500);
+});
+</script>
+</body>
+</html>
